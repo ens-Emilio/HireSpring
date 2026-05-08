@@ -1,135 +1,265 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { FunnelIcon, XMarkIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import api from '../../lib/api'
 import JobCard from './JobCard'
+import { JobFeedSkeleton } from '../../components/LoadingSpinner'
 
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value)
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedValue(value), delay)
-    return () => clearTimeout(timer)
+    const handler = setTimeout(() => setDebouncedValue(value), delay)
+    return () => clearTimeout(handler)
   }, [value, delay])
   return debouncedValue
 }
 
 export default function JobFeed() {
-  const [search, setSearch] = useState('')
-  const [filters, setFilters] = useState({
-    remote: null,
-    jobType: null,
-    level: null,
-    page: 0,
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchInput, setSearchInput] = useState(searchParams.get('q') || '')
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  const initialLoadRef = useRef(true)
+
+  const debouncedSearch = useDebounce(searchInput, 300)
+
+  const filters = {
+    q: debouncedSearch || undefined,
+    jobType: searchParams.get('jobType') || undefined,
+    level: searchParams.get('level') || undefined,
+    remoteOnly: searchParams.get('remoteOnly') === 'true',
+    page: parseInt(searchParams.get('page') || '1', 10),
+  }
+
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ['jobs', filters],
+    queryFn: () => api.get('/jobs', { params: filters }).then((res) => res.data),
+    keepPreviousData: true,
   })
 
-  const debouncedSearch = useDebounce(search, 300)
+  const jobs = data?.jobs || []
+  const totalPages = data?.totalPages || 1
+  const totalJobs = data?.total || 0
 
-  const queryKey = useMemo(() => ['jobs', { ...filters, search: debouncedSearch }], [filters, debouncedSearch])
+  const updateFilter = useCallback((key, value) => {
+    const newParams = new URLSearchParams(searchParams)
+    if (value === undefined || value === false || value === '') {
+      newParams.delete(key)
+    } else {
+      newParams.set(key, String(value))
+    }
+    if (key !== 'page') newParams.delete('page')
+    setSearchParams(newParams)
+  }, [searchParams, setSearchParams])
 
-  const { data, isLoading } = useQuery({
-    queryKey,
-    queryFn: () => {
-      const params = new URLSearchParams()
-      if (debouncedSearch) params.set('search', debouncedSearch)
-      if (filters.remote !== null) params.set('remote', filters.remote)
-      if (filters.jobType) params.set('jobType', filters.jobType)
-      if (filters.level) params.set('level', filters.level)
-      params.set('page', filters.page)
-      params.set('size', 20)
-      return api.get(`/jobs?${params}`).then((r) => r.data)
-    },
-  })
+  const handleSearchSubmit = (e) => {
+    e.preventDefault()
+    updateFilter('q', searchInput)
+  }
+
+  const clearFilters = () => {
+    setSearchInput('')
+    setSearchParams({})
+  }
+
+  const activeFilterCount = [
+    searchParams.get('jobType'),
+    searchParams.get('level'),
+    searchParams.get('remoteOnly') === 'true' ? 'remote' : null,
+  ].filter(Boolean).length
+
+  useEffect(() => {
+    if (!isFetching) {
+      initialLoadRef.current = false
+    }
+  }, [isFetching])
+
+  const isFiltering = isFetching && !isLoading
 
   return (
-    <div>
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Find Your Dream Job</h1>
-        <p className="text-gray-600">Browse thousands of job opportunities from top companies</p>
+        <h1 className="text-3xl font-bold text-gray-900">Encontre sua vaga ideal</h1>
+        <p className="mt-2 text-gray-600">Busque entre milhares de oportunidades e encontre o emprego perfeito para você</p>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="flex-1">
+      <form onSubmit={handleSearchSubmit} className="mb-6">
+        <div className="relative">
+          <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Search jobs by title, description..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="input-field"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Cargo, tecnologia ou empresa..."
+            className="input-field w-full pl-10"
           />
         </div>
+      </form>
+
+      <div className="mb-6 hidden items-center gap-3 md:flex">
         <select
-          value={filters.jobType || ''}
-          onChange={(e) => setFilters({ ...filters, jobType: e.target.value || null, page: 0 })}
-          className="input-field md:w-48"
+          value={searchParams.get('jobType') || ''}
+          onChange={(e) => updateFilter('jobType', e.target.value || undefined)}
+          className="input-field"
         >
-          <option value="">All Types</option>
-          <option value="FULLTIME">Full-time</option>
-          <option value="PARTTIME">Part-time</option>
-          <option value="CONTRACT">Contract</option>
-          <option value="INTERNSHIP">Internship</option>
-          <option value="FREELANCE">Freelance</option>
+          <option value="">Tipo de vaga</option>
+          <option value="full-time">Tempo integral</option>
+          <option value="part-time">Meio período</option>
+          <option value="contract">Contrato</option>
+          <option value="freelance">Freelancer</option>
+          <option value="internship">Estágio</option>
         </select>
+
         <select
-          value={filters.level || ''}
-          onChange={(e) => setFilters({ ...filters, level: e.target.value || null, page: 0 })}
-          className="input-field md:w-48"
+          value={searchParams.get('level') || ''}
+          onChange={(e) => updateFilter('level', e.target.value || undefined)}
+          className="input-field"
         >
-          <option value="">All Levels</option>
-          <option value="JUNIOR">Junior</option>
-          <option value="MID">Mid</option>
-          <option value="SENIOR">Senior</option>
-          <option value="LEAD">Lead</option>
-          <option value="EXECUTIVE">Executive</option>
+          <option value="">Nível</option>
+          <option value="junior">Júnior</option>
+          <option value="mid">Pleno</option>
+          <option value="senior">Sênior</option>
+          <option value="lead">Lead</option>
         </select>
+
         <button
-          onClick={() => setFilters({ ...filters, remote: !filters.remote, page: 0 })}
-          className={`btn-secondary ${filters.remote ? 'bg-primary-50 border-primary-500' : ''}`}
+          type="button"
+          onClick={() => updateFilter('remoteOnly', !filters.remoteOnly)}
+          className={`btn-secondary ${filters.remoteOnly ? 'border-primary-500 bg-primary-50 text-primary-700' : ''}`}
         >
-          Remote Only
+          Remoto apenas
+        </button>
+
+        {activeFilterCount > 0 && (
+          <button type="button" onClick={clearFilters} className="btn-secondary flex items-center gap-1">
+            <XMarkIcon className="h-4 w-4" />
+            Limpar filtros
+          </button>
+        )}
+      </div>
+
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm text-gray-600">{totalJobs} vagas encontradas</p>
+        <button
+          type="button"
+          onClick={() => setMobileFiltersOpen(true)}
+          className="btn-secondary relative flex items-center gap-2 md:hidden"
+        >
+          <FunnelIcon className="h-5 w-5" />
+          Filtros
+          {activeFilterCount > 0 && (
+            <span className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary-600 text-xs text-white">
+              {activeFilterCount}
+            </span>
+          )}
         </button>
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="card animate-pulse">
-              <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
-              <div className="h-3 bg-gray-200 rounded w-1/2 mb-2"></div>
-              <div className="h-3 bg-gray-200 rounded w-1/4"></div>
-            </div>
-          ))}
-        </div>
+        <JobFeedSkeleton />
       ) : (
         <>
-          <div className="grid gap-4">
-            {data?.content?.map((job) => (
+          <div className={`grid-cards transition-opacity duration-200 ${isFiltering ? 'opacity-50' : ''}`}>
+            {jobs.map((job) => (
               <JobCard key={job.id} job={job} />
             ))}
           </div>
-          {data?.content?.length === 0 && (
-            <div className="text-center py-12 text-gray-500">
-              No jobs found matching your criteria
+
+          {jobs.length === 0 && (
+            <div className="py-16 text-center">
+              <p className="text-lg font-medium text-gray-900">Nenhuma vaga encontrada</p>
+              <p className="mt-2 text-gray-600">Tente ajustar seus filtros ou termos de busca</p>
+              <button type="button" onClick={clearFilters} className="btn-primary mt-4">
+                Limpar filtros
+              </button>
             </div>
           )}
-          <div className="flex justify-center mt-6 gap-2">
-            <button
-              disabled={filters.page === 0}
-              onClick={() => setFilters({ ...filters, page: filters.page - 1 })}
-              className="btn-secondary disabled:opacity-50"
-            >
-              Previous
-            </button>
-            <span className="px-4 py-2 text-sm text-gray-600">
-              Page {filters.page + 1} of {data?.totalPages || 1}
-            </span>
-            <button
-              disabled={filters.page >= (data?.totalPages || 1) - 1}
-              onClick={() => setFilters({ ...filters, page: filters.page + 1 })}
-              className="btn-secondary disabled:opacity-50"
-            >
-              Next
-            </button>
-          </div>
+
+          {totalPages > 1 && (
+            <div className="mt-8 flex items-center justify-center gap-4">
+              <button
+                type="button"
+                onClick={() => updateFilter('page', filters.page - 1)}
+                disabled={filters.page <= 1}
+                className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <span className="text-sm text-gray-600">
+                Página {filters.page} de {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => updateFilter('page', filters.page + 1)}
+                disabled={filters.page >= totalPages}
+                className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Próxima
+              </button>
+            </div>
+          )}
         </>
+      )}
+
+      {mobileFiltersOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileFiltersOpen(false)} />
+          <div className="absolute right-0 top-0 h-full w-80 bg-white p-6 shadow-xl">
+            <div className="mb-6 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">Filtros</h2>
+              <button type="button" onClick={() => setMobileFiltersOpen(false)} className="rounded-full p-2 hover:bg-gray-100">
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Tipo de vaga</label>
+                <select
+                  value={searchParams.get('jobType') || ''}
+                  onChange={(e) => updateFilter('jobType', e.target.value || undefined)}
+                  className="input-field w-full"
+                >
+                  <option value="">Todos</option>
+                  <option value="full-time">Tempo integral</option>
+                  <option value="part-time">Meio período</option>
+                  <option value="contract">Contrato</option>
+                  <option value="freelance">Freelancer</option>
+                  <option value="internship">Estágio</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Nível</label>
+                <select
+                  value={searchParams.get('level') || ''}
+                  onChange={(e) => updateFilter('level', e.target.value || undefined)}
+                  className="input-field w-full"
+                >
+                  <option value="">Todos</option>
+                  <option value="junior">Júnior</option>
+                  <option value="mid">Pleno</option>
+                  <option value="senior">Sênior</option>
+                  <option value="lead">Lead</option>
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => updateFilter('remoteOnly', !filters.remoteOnly)}
+                className={`btn-secondary w-full ${filters.remoteOnly ? 'border-primary-500 bg-primary-50 text-primary-700' : ''}`}
+              >
+                {filters.remoteOnly ? '✓ Remoto apenas' : 'Remoto apenas'}
+              </button>
+
+              {activeFilterCount > 0 && (
+                <button type="button" onClick={clearFilters} className="btn-secondary w-full">
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
