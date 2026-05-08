@@ -1,0 +1,19 @@
+spring:
+  jpa:
+    show-sql: true
+  h2:
+    console:
+      enabled: true
+
+logging:
+  level:
+    com.jobportal: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,env,metrics

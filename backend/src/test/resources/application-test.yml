@@ -1,0 +1,32 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+app:
+  jwt:
+    secret: dGVzdC1zZWNyZXQta2V5LXRoYXQtaXMtYXQtbGVhc3QtMzItY2hhcmFjdGVycy1sb25nLWZvci1oczI1Ng==
+    expiration-ms: 86400000
+    refresh-secret: cmVmcmVzaC1zZWNyZXQta2V5LXRoYXQtaXMtYXQtbGVhc3QtMzItY2hhcmFjdGVycy1sb25n
+    refresh-expiration-ms: 604800000
+    cookie-name: jwt_token
+    refresh-cookie-name: refresh_token
+  cors:
+    allowed-origins:
+      - http://localhost:5173
